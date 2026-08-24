@@ -1,0 +1,19 @@
+Cyclone Basics
+
+A tropical cyclone is a rotating low-pressure weather system that forms over warm tropical or subtropical ocean waters.
+
+Cyclone intensity can be described using maximum sustained wind speed and minimum central pressure. In general, stronger tropical cyclones have higher maximum sustained winds and lower central pressures.
+
+The Saffir-Simpson Hurricane Wind Scale (SSHS) is a five-category scale used for hurricanes based primarily on maximum sustained wind speed. Category 1 is the lowest hurricane category and Category 5 is the highest.
+
+A cyclone's track describes how its position changes over time. Latitude and longitude are used to represent the cyclone's geographic position.
+
+IBTrACS stands for International Best Track Archive for Climate Stewardship. It is a global archive of tropical cyclone data assembled from multiple meteorological agencies.
+
+The IBTrACS dataset contains observations of tropical cyclones including location, time, wind speed, pressure, storm type, basin, and other characteristics.
+
+Minimum pressure refers to the lowest recorded central pressure associated with the cyclone observations available in the dataset.
+
+Maximum wind refers to the highest recorded wind value available in the cyclone observations used by the system.
+
+Cyclone observations are time-based measurements. A single cyclone can therefore have many observations representing different points along its lifetime and track.
