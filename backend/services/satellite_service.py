@@ -4,19 +4,17 @@ from datetime import datetime, timezone
 class SatelliteService:
 
     def __init__(self):
-        """
-        NASA GIBS satellite imagery service.
 
-        GIBS provides map-ready Earth imagery through
-        standard WMS/WMTS services.
-        """
+        self.provider = "NASA GIBS"
 
-        self.wms_url = (
-            "https://gibs.earthdata.nasa.gov/"
-            "wmts/epsg3857/best/"
+        self.layer = (
+            "MODIS_Terra_CorrectedReflectance_TrueColor"
         )
 
-        self.layer = "MODIS_Terra_CorrectedReflectance_TrueColor"
+        self.base_url = (
+            "https://gibs.earthdata.nasa.gov/"
+            "wmts/epsg3857/best"
+        )
 
 
     def get_latest_image_metadata(
@@ -45,21 +43,23 @@ class SatelliteService:
 
 
         # -------------------------------------------------
-        # NASA GIBS WMTS tile endpoint
+        # Use the current UTC date as the requested
+        # imagery date.
+        #
+        # The frontend will use the map URL rather than
+        # treating this as a guaranteed real-time image.
         # -------------------------------------------------
 
-        tile_url = (
-            "https://gibs.earthdata.nasa.gov/"
-            "wmts/epsg3857/best/"
-            f"{self.layer}/default/"
-            "2026-08-24/"
-            "GoogleMapsCompatible_Level9/"
-            "{z}/{y}/{x}.jpg"
+        date_string = (
+            datetime.now(
+                timezone.utc
+            )
+            .strftime("%Y-%m-%d")
         )
 
 
         # -------------------------------------------------
-        # Return metadata
+        # Metadata
         # -------------------------------------------------
 
         return {
@@ -68,7 +68,7 @@ class SatelliteService:
                 True,
 
             "provider":
-                "NASA GIBS",
+                self.provider,
 
             "layer":
                 self.layer,
@@ -82,18 +82,21 @@ class SatelliteService:
             "radius_km":
                 radius_km,
 
-            "tile_url":
-                tile_url,
+            "date":
+                date_string,
 
-            "updated_at":
-                datetime.now(
-                    timezone.utc
-                ).isoformat(),
+            "imagery_type":
+                "MODIS Terra true-color",
+
+            "map_service":
+                self.base_url,
 
             "description":
                 (
-                    "NASA MODIS Terra corrected-reflectance "
-                    "true-color satellite imagery."
+                    "NASA GIBS satellite imagery layer. "
+                    "Availability and acquisition time "
+                    "depend on the selected satellite "
+                    "product."
                 )
 
         }
