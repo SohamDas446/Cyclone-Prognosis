@@ -1,48 +1,106 @@
-import os
-from typing import Any
-
-import requests
+from datetime import datetime, timezone
 
 
 class SatelliteService:
-    """
-    Adapter for a configured satellite-data provider.
 
-    The provider-specific endpoint and authentication are intentionally
-    kept outside this module. Configure SATELLITE_API_URL in .env.
-    """
+    def __init__(self):
+        """
+        NASA GIBS satellite imagery service.
 
-    def __init__(self, base_url: str | None = None):
-        self.base_url = base_url or os.getenv("SATELLITE_API_URL")
+        GIBS provides map-ready Earth imagery through
+        standard WMS/WMTS services.
+        """
+
+        self.wms_url = (
+            "https://gibs.earthdata.nasa.gov/"
+            "wmts/epsg3857/best/"
+        )
+
+        self.layer = "MODIS_Terra_CorrectedReflectance_TrueColor"
+
 
     def get_latest_image_metadata(
         self,
         latitude: float,
         longitude: float,
-        radius_km: float = 500.0,
-    ) -> dict[str, Any]:
-        if not self.base_url:
-            return {
-                "available": False,
-                "message": (
-                    "Satellite API is not configured yet. "
-                    "Set SATELLITE_API_URL in backend/.env."
-                ),
-            }
+        radius_km: float = 500
+    ):
 
-        response = requests.get(
-            self.base_url,
-            params={
-                "latitude": latitude,
-                "longitude": longitude,
-                "radius_km": radius_km,
-            },
-            timeout=30,
+        # -------------------------------------------------
+        # Validate coordinates
+        # -------------------------------------------------
+
+        if not -90 <= latitude <= 90:
+
+            raise ValueError(
+                "Latitude must be between -90 and 90."
+            )
+
+
+        if not -180 <= longitude <= 180:
+
+            raise ValueError(
+                "Longitude must be between -180 and 180."
+            )
+
+
+        # -------------------------------------------------
+        # NASA GIBS WMTS tile endpoint
+        # -------------------------------------------------
+
+        tile_url = (
+            "https://gibs.earthdata.nasa.gov/"
+            "wmts/epsg3857/best/"
+            f"{self.layer}/default/"
+            "2026-08-24/"
+            "GoogleMapsCompatible_Level9/"
+            "{z}/{y}/{x}.jpg"
         )
-        response.raise_for_status()
 
-        data = response.json()
-        return data if isinstance(data, dict) else {"data": data}
 
+        # -------------------------------------------------
+        # Return metadata
+        # -------------------------------------------------
+
+        return {
+
+            "available":
+                True,
+
+            "provider":
+                "NASA GIBS",
+
+            "layer":
+                self.layer,
+
+            "latitude":
+                latitude,
+
+            "longitude":
+                longitude,
+
+            "radius_km":
+                radius_km,
+
+            "tile_url":
+                tile_url,
+
+            "updated_at":
+                datetime.now(
+                    timezone.utc
+                ).isoformat(),
+
+            "description":
+                (
+                    "NASA MODIS Terra corrected-reflectance "
+                    "true-color satellite imagery."
+                )
+
+        }
+
+
+# =========================================================
+# SINGLE SERVICE INSTANCE
+# =========================================================
 
 satellite_service = SatelliteService()
