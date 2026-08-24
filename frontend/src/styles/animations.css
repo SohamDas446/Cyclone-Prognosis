@@ -1,0 +1,131 @@
+/* =============================================================
+   MOTION
+   -------------------------------------------------------------
+   A small, reused vocabulary of motion rather than one-off
+   effects per component: rise-in for content appearing, a
+   slow ambient rotation for the radar glyph, a sweep for the
+   radar's scan arm, and a soft pulse for live/status dots.
+============================================================= */
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes sweep-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes ring-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@keyframes dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  70% { box-shadow: 0 0 0 6px transparent; opacity: 0.6; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes bar-fill {
+  from { width: 0%; }
+}
+
+.rise-in {
+  animation: rise-in 0.6s var(--ease) both;
+}
+
+.fade-in {
+  animation: fade-in 0.5s var(--ease) both;
+}
+
+.scale-in {
+  animation: scale-in 0.35s var(--ease) both;
+}
+
+.stagger > * {
+  animation: rise-in 0.55s var(--ease) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.09s; }
+.stagger > *:nth-child(3) { animation-delay: 0.16s; }
+.stagger > *:nth-child(4) { animation-delay: 0.23s; }
+.stagger > *:nth-child(5) { animation-delay: 0.3s; }
+.stagger > *:nth-child(6) { animation-delay: 0.37s; }
+
+/* radar glyph */
+.radar-glyph .radar-ring {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.radar-glyph .radar-ring--outer {
+  animation: ring-pulse 3.2s ease-in-out infinite;
+}
+.radar-glyph .radar-cross {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.radar-glyph .radar-sweep {
+  transform-origin: 100px 100px;
+  animation: sweep-rotate 5s linear infinite;
+}
+.radar-glyph .radar-core {
+  fill: var(--accent-bright);
+}
+.radar-glyph .radar-spiral-path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.status-dot {
+  position: relative;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  color: var(--success);
+  background: currentColor;
+}
+.status-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: dot-pulse 2s ease-out infinite;
+  color: inherit;
+}
+.status-dot.warning { color: var(--warning); }
+.status-dot.danger { color: var(--danger); }
+.status-dot.muted { color: var(--text-tertiary); }
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.09) 37%,
+    rgba(255, 255, 255, 0.04) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}

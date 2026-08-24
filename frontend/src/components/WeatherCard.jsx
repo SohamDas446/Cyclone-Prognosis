@@ -1,48 +1,39 @@
-function WeatherCard() {
+function WeatherCard({ weather, loading }) {
   return (
-    <div className="panel weather-card">
+    <div className="card">
+      <div className="card-label">CURRENT CONDITIONS</div>
+      <h2>Weather</h2>
 
-      <div className="panel-header">
+      {!weather && !loading && <div className="not-analyzed">Awaiting analysis</div>}
 
-        <div>
-          <span className="panel-label">
-            CURRENT CONDITIONS
-          </span>
-
-          <h2>
-            Weather
-          </h2>
+      {loading && (
+        <div className="weather-data" style={{ marginTop: 16 }}>
+          <div className="skeleton" style={{ height: 44 }} />
+          <div className="skeleton" style={{ height: 44 }} />
+          <div className="skeleton" style={{ height: 44 }} />
         </div>
+      )}
 
-        <span className="weather-symbol">
-          ☁
-        </span>
-
-      </div>
-
-      <div className="temperature">
-        27.9<span>°C</span>
-      </div>
-
-      <div className="weather-stats">
-
-        <div>
-          <span>HUMIDITY</span>
-          <strong>88%</strong>
+      {weather?.available && !loading && (
+        <div className="weather-data scale-in">
+          <div>
+            <span>TEMPERATURE</span>
+            <strong>{weather.temperature ?? "N/A"}°C</strong>
+          </div>
+          <div>
+            <span>WIND</span>
+            <strong>{weather.wind_speed ?? "N/A"}</strong>
+          </div>
+          <div>
+            <span>HUMIDITY</span>
+            <strong>{weather.relative_humidity ?? "N/A"}%</strong>
+          </div>
         </div>
+      )}
 
-        <div>
-          <span>CLOUD COVER</span>
-          <strong>53%</strong>
-        </div>
-
-        <div>
-          <span>PRESSURE</span>
-          <strong>1003.8 hPa</strong>
-        </div>
-
-      </div>
-
+      {weather && weather.available === false && !loading && (
+        <div className="not-analyzed">Weather data unavailable for this location.</div>
+      )}
     </div>
   );
 }
