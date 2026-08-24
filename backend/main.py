@@ -20,7 +20,10 @@ from services.risk_service import calculate_risk
 
 app = FastAPI(
     title="Cyclone AI",
-    description="Cyclone analytics, live location analysis and AI assistance.",
+    description=(
+        "Cyclone analytics, live location analysis "
+        "and AI assistance."
+    ),
     version="2.0.0"
 )
 
@@ -66,6 +69,14 @@ class LiveAnalysisRequest(LocationRequest):
         default=1000.0,
         gt=0,
         le=5000
+    )
+
+    # Maximum number of cyclones returned.
+    # Default = 5.
+    max_cyclones: int = Field(
+        default=5,
+        ge=1,
+        le=20
     )
 
     question: str | None = None
@@ -132,7 +143,6 @@ def get_cyclones(
 
             params = []
 
-            # Season filter
             if season is not None:
 
                 query += """
@@ -141,7 +151,6 @@ def get_cyclones(
 
                 params.append(season)
 
-            # Name filter
             if name is not None:
 
                 query += """
@@ -150,7 +159,6 @@ def get_cyclones(
 
                 params.append(name)
 
-            # Basin filter
             if basin is not None:
 
                 query += """
@@ -302,10 +310,6 @@ def cyclone_track(name: str):
 @app.post("/ask")
 def ask_about_cyclone(request: AskRequest):
 
-    # -----------------------------------------------------
-    # 1. Get cyclone information from PostgreSQL
-    # -----------------------------------------------------
-
     conn = get_connection()
 
     try:
@@ -347,27 +351,18 @@ def ask_about_cyclone(request: AskRequest):
 
         conn.close()
 
-    # -----------------------------------------------------
-    # 2. Search knowledge base using RAG
-    # -----------------------------------------------------
 
     rag_results = search_knowledge(
         request.question,
         top_k=3
     )
 
-    # -----------------------------------------------------
-    # 3. Build RAG context
-    # -----------------------------------------------------
 
     rag_context = "\n\n".join(
         result["text"]
         for result in rag_results
     )
 
-    # -----------------------------------------------------
-    # 4. Combine cyclone data + RAG knowledge
-    # -----------------------------------------------------
 
     context = f"""
 CYCLONE DATA:
@@ -380,30 +375,29 @@ RETRIEVED CYCLONE KNOWLEDGE:
 {rag_context}
 """
 
-    # -----------------------------------------------------
-    # 5. Ask LLM
-    # -----------------------------------------------------
 
     answer = ask_llm(
         request.question,
         context
     )
 
-    # -----------------------------------------------------
-    # 6. Return response
-    # -----------------------------------------------------
 
     return {
 
-        "question": request.question,
+        "question":
+            request.question,
 
-        "cyclone": request.cyclone_name,
+        "cyclone":
+            request.cyclone_name,
 
-        "answer": answer,
+        "answer":
+            answer,
 
-        "cyclone_data": cyclone_data,
+        "cyclone_data":
+            cyclone_data,
 
-        "rag_context": rag_results
+        "rag_context":
+            rag_results
 
     }
 
@@ -431,9 +425,11 @@ def set_location(request: LocationRequest):
 
     return {
 
-        "success": True,
+        "success":
+            True,
 
-        "location": location
+        "location":
+            location
 
     }
 
@@ -481,9 +477,11 @@ def live_analysis(
 
         weather = {
 
-            "available": False,
+            "available":
+                False,
 
-            "error": str(exc)
+            "error":
+                str(exc)
 
         }
 
@@ -648,7 +646,30 @@ def live_analysis(
 
 
     # =====================================================
-    # 6. GET SATELLITE INFORMATION
+    # 6. KEEP ONLY THE MOST RELEVANT CYCLONES
+    # =====================================================
+
+    # find_nearby_cyclones() returns the nearby cyclones
+    # ordered by distance.
+    #
+    # We only send the closest N cyclones to the model,
+    # RAG/LLM and frontend.
+    #
+    # This prevents /live-analysis from returning hundreds
+    # of cyclone predictions.
+
+    nearby_cyclones = sorted(
+        nearby_cyclones,
+        key=lambda cyclone: (
+            cyclone.get("distance_km")
+            if cyclone.get("distance_km") is not None
+            else float("inf")
+        )
+    )[:request.max_cyclones]
+
+
+    # =====================================================
+    # 7. GET SATELLITE INFORMATION
     # =====================================================
 
     try:
@@ -670,26 +691,40 @@ def live_analysis(
 
         satellite = {
 
-            "available": False,
+            "available":
+                False,
 
-            "error": str(exc)
+            "error":
+                str(exc)
 
         }
 
 
     # =====================================================
-    # 7. RUN FORECAST SERVICE
+    # 8. RUN FORECAST SERVICE
     # =====================================================
 
-    forecast = forecast_service.predict(
+    if nearby_cyclones:
 
-        nearby_cyclones
+        forecast = forecast_service.predict(
+            nearby_cyclones
+        )
 
-    )
+    else:
+
+        forecast = {
+
+            "available":
+                False,
+
+            "message":
+                "No cyclones found within the requested radius."
+
+        }
 
 
     # =====================================================
-    # 8. CALCULATE RISK
+    # 9. CALCULATE RISK
     # =====================================================
 
     nearest_distance = None
@@ -714,7 +749,7 @@ def live_analysis(
 
 
     # =====================================================
-    # 9. OPTIONAL RAG + LLM
+    # 10. OPTIONAL RAG + LLM
     # =====================================================
 
     ai_explanation = None
@@ -723,10 +758,6 @@ def live_analysis(
 
 
     if request.question:
-
-        # -------------------------------------------------
-        # Retrieve knowledge
-        # -------------------------------------------------
 
         rag_results = search_knowledge(
 
@@ -737,10 +768,6 @@ def live_analysis(
         )
 
 
-        # -------------------------------------------------
-        # Build RAG context
-        # -------------------------------------------------
-
         rag_context = "\n\n".join(
 
             result["text"]
@@ -749,10 +776,6 @@ def live_analysis(
 
         )
 
-
-        # -------------------------------------------------
-        # Combine all live information
-        # -------------------------------------------------
 
         live_context = f"""
 
@@ -766,7 +789,7 @@ CURRENT WEATHER:
 {weather}
 
 
-NEARBY CYCLONES:
+NEAREST CYCLONES:
 
 {nearby_cyclones}
 
@@ -793,10 +816,6 @@ RETRIEVED CYCLONE KNOWLEDGE:
 """
 
 
-        # -------------------------------------------------
-        # Ask LLM
-        # -------------------------------------------------
-
         ai_explanation = ask_llm(
 
             request.question,
@@ -807,7 +826,7 @@ RETRIEVED CYCLONE KNOWLEDGE:
 
 
     # =====================================================
-    # 10. RETURN COMPLETE ANALYSIS
+    # 11. RETURN COMPLETE ANALYSIS
     # =====================================================
 
     return {
@@ -820,6 +839,12 @@ RETRIEVED CYCLONE KNOWLEDGE:
 
         "nearby_cyclones":
             nearby_cyclones,
+
+        "cyclone_count":
+            len(nearby_cyclones),
+
+        "search_radius_km":
+            request.radius_km,
 
         "satellite":
             satellite,
