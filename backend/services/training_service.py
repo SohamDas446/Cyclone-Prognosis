@@ -40,7 +40,6 @@ FEATURE_COLUMNS = [
     "distance_to_land",
 ]
 
-
 TARGET_COLUMNS = [
     "delta_latitude",
     "delta_longitude",
@@ -49,8 +48,15 @@ TARGET_COLUMNS = [
 ]
 
 
-# One observation into the future
-FUTURE_STEP = 1
+# =========================================================
+# FORECAST WINDOW
+# =========================================================
+
+TARGET_HOURS = 6
+
+# Accept small timestamp differences around the target.
+MIN_FORECAST_HOURS = 5
+MAX_FORECAST_HOURS = 7
 
 
 # =========================================================
@@ -66,7 +72,7 @@ def create_training_dataset(
     output_path = Path(output_path)
 
     # -----------------------------------------------------
-    # Check raw dataset
+    # Check dataset
     # -----------------------------------------------------
 
     if not input_path.exists():
@@ -75,20 +81,15 @@ def create_training_dataset(
             f"IBTrACS dataset not found: {input_path}"
         )
 
-
     print("Loading IBTrACS dataset...")
 
-    # Reuse existing project loader
-    df = load_ibtracs(
-        input_path
-    )
-
+    df = load_ibtracs(input_path)
 
     # -----------------------------------------------------
-    # Keep required columns
+    # Required columns
     # -----------------------------------------------------
 
-    required_ibtracs_columns = [
+    required_columns = [
         "SID",
         "SEASON",
         "NAME",
@@ -102,17 +103,11 @@ def create_training_dataset(
         "STORM_DIR",
     ]
 
-
     missing_columns = [
-
         column
-
-        for column in required_ibtracs_columns
-
+        for column in required_columns
         if column not in df.columns
-
     ]
-
 
     if missing_columns:
 
@@ -121,15 +116,11 @@ def create_training_dataset(
             + ", ".join(missing_columns)
         )
 
-
-    df = df[
-        required_ibtracs_columns
-    ].copy()
-
-
     # -----------------------------------------------------
-    # Rename columns to model format
+    # Select and rename columns
     # -----------------------------------------------------
+
+    df = df[required_columns].copy()
 
     df = df.rename(
         columns={
@@ -147,9 +138,17 @@ def create_training_dataset(
         }
     )
 
+    # -----------------------------------------------------
+    # Make sure timestamp is datetime
+    # -----------------------------------------------------
+
+    df["iso_time"] = pd.to_datetime(
+        df["iso_time"],
+        errors="coerce"
+    )
 
     # -----------------------------------------------------
-    # Remove rows without storm ID/time/location
+    # Sort chronologically
     # -----------------------------------------------------
 
     df = df.dropna(
@@ -161,23 +160,19 @@ def create_training_dataset(
         ]
     )
 
-
-    # -----------------------------------------------------
-    # Sort every cyclone chronologically
-    # -----------------------------------------------------
-
     df = df.sort_values(
-        by=[
+        [
             "sid",
             "iso_time",
         ]
-    ).reset_index(
-        drop=True
+    ).reset_index(drop=True)
+
+    print(
+        f"Usable observations before pairing: {len(df)}"
     )
 
-
     # =====================================================
-    # CREATE FUTURE TARGETS
+    # CREATE FUTURE OBSERVATIONS
     # =====================================================
 
     grouped = df.groupby(
@@ -185,72 +180,34 @@ def create_training_dataset(
         sort=False
     )
 
-
-    # -----------------------------------------------------
-    # Future latitude
-    # -----------------------------------------------------
-
     df["future_latitude"] = (
         grouped["latitude"]
-        .shift(-FUTURE_STEP)
+        .shift(-1)
     )
-
-
-    # -----------------------------------------------------
-    # Future longitude
-    # -----------------------------------------------------
 
     df["future_longitude"] = (
         grouped["longitude"]
-        .shift(-FUTURE_STEP)
+        .shift(-1)
     )
-
-
-    # -----------------------------------------------------
-    # Future wind
-    # -----------------------------------------------------
 
     df["future_wind"] = (
         grouped["wind"]
-        .shift(-FUTURE_STEP)
+        .shift(-1)
     )
-
-
-    # -----------------------------------------------------
-    # Future pressure
-    # -----------------------------------------------------
 
     df["future_pressure"] = (
         grouped["pressure"]
-        .shift(-FUTURE_STEP)
+        .shift(-1)
     )
-
-
-    # =====================================================
-    # CALCULATE MOVEMENT TARGETS
-    # =====================================================
-
-    df["delta_latitude"] = (
-        df["future_latitude"]
-        - df["latitude"]
-    )
-
-
-    df["delta_longitude"] = (
-        df["future_longitude"]
-        - df["longitude"]
-    )
-
-
-    # =====================================================
-    # PREVENT IRREGULAR TIME TARGETS
-    # =====================================================
 
     df["future_time"] = (
         grouped["iso_time"]
-        .shift(-FUTURE_STEP)
+        .shift(-1)
     )
 
+    # =====================================================
+    # CALCULATE TIME DIFFERENCE
+    # =====================================================
 
     df["forecast_hours"] = (
         (
@@ -261,18 +218,61 @@ def create_training_dataset(
         / 3600
     )
 
+    # -----------------------------------------------------
+    # Show actual interval information
+    # -----------------------------------------------------
 
-    # Keep standard 6-hour forecast pairs.
-    #
-    # This is much safer than blindly assuming every next
-    # row represents exactly six hours.
-    df = df[
-        df["forecast_hours"] == 6
-    ].copy()
+    valid_intervals = df[
+        "forecast_hours"
+    ].dropna()
 
+    print()
+    print(
+        "Forecast interval statistics:"
+    )
+
+    print(
+        valid_intervals.describe()
+    )
 
     # =====================================================
-    # REMOVE INCOMPLETE TRAINING ROWS
+    # KEEP APPROXIMATELY 6-HOUR PAIRS
+    # =====================================================
+
+    df = df[
+        (
+            df["forecast_hours"]
+            >= MIN_FORECAST_HOURS
+        )
+        &
+        (
+            df["forecast_hours"]
+            <= MAX_FORECAST_HOURS
+        )
+    ].copy()
+
+    print()
+    print(
+        "Rows after 6-hour pairing:",
+        len(df)
+    )
+
+    # =====================================================
+    # CREATE TARGETS
+    # =====================================================
+
+    df["delta_latitude"] = (
+        df["future_latitude"]
+        - df["latitude"]
+    )
+
+    df["delta_longitude"] = (
+        df["future_longitude"]
+        - df["longitude"]
+    )
+
+    # =====================================================
+    # REMOVE INCOMPLETE ROWS
     # =====================================================
 
     required_training_columns = (
@@ -280,42 +280,41 @@ def create_training_dataset(
         + TARGET_COLUMNS
     )
 
-
     before_drop = len(df)
-
 
     df = df.dropna(
         subset=required_training_columns
     )
-
 
     removed = (
         before_drop
         - len(df)
     )
 
-
     print(
-        f"Removed {removed} incomplete training rows."
+        f"Removed {removed} incomplete "
+        "training rows."
     )
-
 
     if df.empty:
 
         raise ValueError(
-            "No usable training data remains."
+            "No usable training data remains "
+            "after creating 6-hour pairs."
         )
 
-
     # =====================================================
-    # FINAL TRAINING DATASET
+    # FINAL DATASET
     # =====================================================
 
     final_columns = [
 
         "sid",
+
         "season",
+
         "name",
+
         "iso_time",
 
         *FEATURE_COLUMNS,
@@ -326,14 +325,12 @@ def create_training_dataset(
 
     ]
 
-
     training_df = df[
         final_columns
     ].copy()
 
-
     # =====================================================
-    # SAVE DATASET
+    # SAVE
     # =====================================================
 
     output_path.parent.mkdir(
@@ -341,24 +338,27 @@ def create_training_dataset(
         exist_ok=True
     )
 
-
     training_df.to_csv(
         output_path,
         index=False
     )
 
+    # =====================================================
+    # SUMMARY
+    # =====================================================
 
     print()
     print("=" * 60)
-    print("TRAINING DATASET CREATED")
+    print("TRAINING DATASET CREATED SUCCESSFULLY")
     print("=" * 60)
 
     print(
-        f"Output: {output_path}"
+        f"Output file:\n{output_path}"
     )
 
     print(
-        f"Training rows: {len(training_df)}"
+        f"\nTraining rows: "
+        f"{len(training_df)}"
     )
 
     print(
@@ -373,14 +373,18 @@ def create_training_dataset(
         f"{training_df['season'].max()}"
     )
 
-    print("=" * 60)
+    print(
+        f"Average forecast interval: "
+        f"{training_df['forecast_hours'].mean():.2f} hours"
+    )
 
+    print("=" * 60)
 
     return training_df
 
 
 # =========================================================
-# RUN DIRECTLY
+# RUN
 # =========================================================
 
 if __name__ == "__main__":
