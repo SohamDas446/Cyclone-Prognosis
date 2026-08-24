@@ -2,9 +2,32 @@ from pathlib import Path
 
 import pandas as pd
 
+from services.ibtracs_service import load_ibtracs
+
 
 # =========================================================
-# CONFIGURATION
+# PATHS
+# =========================================================
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+RAW_DATA_PATH = (
+    BACKEND_DIR
+    / "data"
+    / "raw"
+    / "ibtracs.csv"
+)
+
+TRAINING_DATA_PATH = (
+    BACKEND_DIR
+    / "data"
+    / "training"
+    / "cyclone_training.csv"
+)
+
+
+# =========================================================
+# MODEL COLUMNS
 # =========================================================
 
 FEATURE_COLUMNS = [
@@ -17,6 +40,7 @@ FEATURE_COLUMNS = [
     "distance_to_land",
 ]
 
+
 TARGET_COLUMNS = [
     "delta_latitude",
     "delta_longitude",
@@ -25,168 +49,186 @@ TARGET_COLUMNS = [
 ]
 
 
-# Number of observations into the future used as the target.
-# IBTrACS observations are commonly at 6-hour intervals, but
-# this should be verified for your actual dataset.
+# One observation into the future
 FUTURE_STEP = 1
 
 
 # =========================================================
-# DATA NORMALIZATION
-# =========================================================
-
-def normalize_observations(
-    observations: list[dict]
-) -> pd.DataFrame:
-
-    rows = []
-
-    for observation in observations:
-
-        rows.append({
-
-            "sid":
-                observation.get("sid"),
-
-            "season":
-                observation.get("season"),
-
-            "name":
-                observation.get("name"),
-
-            "iso_time":
-                observation.get("iso_time"),
-
-            "latitude":
-                _to_float(
-                    observation.get("latitude")
-                ),
-
-            "longitude":
-                _to_float(
-                    observation.get("longitude")
-                ),
-
-            "wind":
-                _to_float(
-                    observation.get("wind")
-                ),
-
-            "pressure":
-                _to_float(
-                    observation.get("pressure")
-                ),
-
-            "storm_speed":
-                _to_float(
-                    observation.get("storm_speed")
-                ),
-
-            "storm_direction":
-                _to_float(
-                    observation.get("storm_direction")
-                ),
-
-            "distance_to_land":
-                _to_float(
-                    observation.get("distance_to_land")
-                ),
-
-        })
-
-    df = pd.DataFrame(rows)
-
-    if "iso_time" in df.columns:
-
-        df["iso_time"] = pd.to_datetime(
-            df["iso_time"],
-            errors="coerce"
-        )
-
-    return df
-
-
-# =========================================================
-# CREATE TRAINING DATA
+# CREATE TRAINING DATASET
 # =========================================================
 
 def create_training_dataset(
-    observations: list[dict],
-    output_path: str
+    input_path=RAW_DATA_PATH,
+    output_path=TRAINING_DATA_PATH,
 ):
 
-    df = normalize_observations(
-        observations
-    )
+    input_path = Path(input_path)
+    output_path = Path(output_path)
 
-    if df.empty:
+    # -----------------------------------------------------
+    # Check raw dataset
+    # -----------------------------------------------------
 
-        raise ValueError(
-            "No cyclone observations were supplied."
+    if not input_path.exists():
+
+        raise FileNotFoundError(
+            f"IBTrACS dataset not found: {input_path}"
         )
 
 
+    print("Loading IBTrACS dataset...")
+
+    # Reuse existing project loader
+    df = load_ibtracs(
+        input_path
+    )
+
+
     # -----------------------------------------------------
-    # Sort observations chronologically
+    # Keep required columns
     # -----------------------------------------------------
 
-    df = df.sort_values(
-        [
+    required_ibtracs_columns = [
+        "SID",
+        "SEASON",
+        "NAME",
+        "ISO_TIME",
+        "LAT",
+        "LON",
+        "USA_WIND",
+        "USA_PRES",
+        "DIST2LAND",
+        "STORM_SPEED",
+        "STORM_DIR",
+    ]
+
+
+    missing_columns = [
+
+        column
+
+        for column in required_ibtracs_columns
+
+        if column not in df.columns
+
+    ]
+
+
+    if missing_columns:
+
+        raise ValueError(
+            "IBTrACS dataset is missing columns: "
+            + ", ".join(missing_columns)
+        )
+
+
+    df = df[
+        required_ibtracs_columns
+    ].copy()
+
+
+    # -----------------------------------------------------
+    # Rename columns to model format
+    # -----------------------------------------------------
+
+    df = df.rename(
+        columns={
+            "SID": "sid",
+            "SEASON": "season",
+            "NAME": "name",
+            "ISO_TIME": "iso_time",
+            "LAT": "latitude",
+            "LON": "longitude",
+            "USA_WIND": "wind",
+            "USA_PRES": "pressure",
+            "DIST2LAND": "distance_to_land",
+            "STORM_SPEED": "storm_speed",
+            "STORM_DIR": "storm_direction",
+        }
+    )
+
+
+    # -----------------------------------------------------
+    # Remove rows without storm ID/time/location
+    # -----------------------------------------------------
+
+    df = df.dropna(
+        subset=[
             "sid",
-            "iso_time"
+            "iso_time",
+            "latitude",
+            "longitude",
         ]
     )
 
 
     # -----------------------------------------------------
-    # Create future targets
-    #
-    # shift(-1) means:
-    #
-    # current observation
-    #        ↓
-    # next observation
-    #
-    # The model learns the movement between them.
+    # Sort every cyclone chronologically
     # -----------------------------------------------------
+
+    df = df.sort_values(
+        by=[
+            "sid",
+            "iso_time",
+        ]
+    ).reset_index(
+        drop=True
+    )
+
+
+    # =====================================================
+    # CREATE FUTURE TARGETS
+    # =====================================================
 
     grouped = df.groupby(
         "sid",
-        group_keys=False
-    )
-
-
-    df["future_latitude"] = grouped[
-        "latitude"
-    ].shift(
-        -FUTURE_STEP
-    )
-
-
-    df["future_longitude"] = grouped[
-        "longitude"
-    ].shift(
-        -FUTURE_STEP
-    )
-
-
-    df["future_wind"] = grouped[
-        "wind"
-    ].shift(
-        -FUTURE_STEP
-    )
-
-
-    df["future_pressure"] = grouped[
-        "pressure"
-    ].shift(
-        -FUTURE_STEP
+        sort=False
     )
 
 
     # -----------------------------------------------------
-    # Calculate movement
+    # Future latitude
     # -----------------------------------------------------
+
+    df["future_latitude"] = (
+        grouped["latitude"]
+        .shift(-FUTURE_STEP)
+    )
+
+
+    # -----------------------------------------------------
+    # Future longitude
+    # -----------------------------------------------------
+
+    df["future_longitude"] = (
+        grouped["longitude"]
+        .shift(-FUTURE_STEP)
+    )
+
+
+    # -----------------------------------------------------
+    # Future wind
+    # -----------------------------------------------------
+
+    df["future_wind"] = (
+        grouped["wind"]
+        .shift(-FUTURE_STEP)
+    )
+
+
+    # -----------------------------------------------------
+    # Future pressure
+    # -----------------------------------------------------
+
+    df["future_pressure"] = (
+        grouped["pressure"]
+        .shift(-FUTURE_STEP)
+    )
+
+
+    # =====================================================
+    # CALCULATE MOVEMENT TARGETS
+    # =====================================================
 
     df["delta_latitude"] = (
         df["future_latitude"]
@@ -200,36 +242,99 @@ def create_training_dataset(
     )
 
 
-    # -----------------------------------------------------
-    # Remove rows without future observations
-    # -----------------------------------------------------
+    # =====================================================
+    # PREVENT IRREGULAR TIME TARGETS
+    # =====================================================
 
-    required_columns = (
+    df["future_time"] = (
+        grouped["iso_time"]
+        .shift(-FUTURE_STEP)
+    )
+
+
+    df["forecast_hours"] = (
+        (
+            df["future_time"]
+            - df["iso_time"]
+        )
+        .dt.total_seconds()
+        / 3600
+    )
+
+
+    # Keep standard 6-hour forecast pairs.
+    #
+    # This is much safer than blindly assuming every next
+    # row represents exactly six hours.
+    df = df[
+        df["forecast_hours"] == 6
+    ].copy()
+
+
+    # =====================================================
+    # REMOVE INCOMPLETE TRAINING ROWS
+    # =====================================================
+
+    required_training_columns = (
         FEATURE_COLUMNS
         + TARGET_COLUMNS
     )
 
 
+    before_drop = len(df)
+
+
     df = df.dropna(
-        subset=required_columns
+        subset=required_training_columns
+    )
+
+
+    removed = (
+        before_drop
+        - len(df)
+    )
+
+
+    print(
+        f"Removed {removed} incomplete training rows."
     )
 
 
     if df.empty:
 
         raise ValueError(
-            "No usable training rows remain after "
-            "creating future targets."
+            "No usable training data remains."
         )
 
 
-    # -----------------------------------------------------
-    # Save training dataset
-    # -----------------------------------------------------
+    # =====================================================
+    # FINAL TRAINING DATASET
+    # =====================================================
 
-    output_path = Path(
-        output_path
-    )
+    final_columns = [
+
+        "sid",
+        "season",
+        "name",
+        "iso_time",
+
+        *FEATURE_COLUMNS,
+
+        *TARGET_COLUMNS,
+
+        "forecast_hours",
+
+    ]
+
+
+    training_df = df[
+        final_columns
+    ].copy()
+
+
+    # =====================================================
+    # SAVE DATASET
+    # =====================================================
 
     output_path.parent.mkdir(
         parents=True,
@@ -237,165 +342,47 @@ def create_training_dataset(
     )
 
 
-    df.to_csv(
+    training_df.to_csv(
         output_path,
         index=False
     )
 
 
-    print(
-        "Training dataset created:"
-    )
+    print()
+    print("=" * 60)
+    print("TRAINING DATASET CREATED")
+    print("=" * 60)
 
     print(
-        output_path
+        f"Output: {output_path}"
     )
 
     print(
-        f"Training rows: {len(df)}"
+        f"Training rows: {len(training_df)}"
     )
 
-
-    return df
-
-
-# =========================================================
-# LOAD OBSERVATIONS FROM CSV
-# =========================================================
-
-def create_training_dataset_from_csv(
-    input_path: str,
-    output_path: str
-):
-
-    input_path = Path(
-        input_path
+    print(
+        f"Unique cyclones: "
+        f"{training_df['sid'].nunique()}"
     )
 
-    if not input_path.exists():
-
-        raise FileNotFoundError(
-            f"Input dataset not found: {input_path}"
-        )
-
-
-    raw_df = pd.read_csv(
-        input_path
+    print(
+        f"Seasons: "
+        f"{training_df['season'].min()} "
+        f"- "
+        f"{training_df['season'].max()}"
     )
 
-
-    observations = []
-
-
-    for _, row in raw_df.iterrows():
-
-        observations.append({
-
-            "sid":
-                row.get("SID", row.get("sid")),
-
-            "season":
-                row.get(
-                    "SEASON",
-                    row.get("season")
-                ),
-
-            "name":
-                row.get(
-                    "NAME",
-                    row.get("name")
-                ),
-
-            "iso_time":
-                row.get(
-                    "ISO_TIME",
-                    row.get("iso_time")
-                ),
-
-            "latitude":
-                row.get(
-                    "LAT",
-                    row.get("latitude")
-                ),
-
-            "longitude":
-                row.get(
-                    "LON",
-                    row.get("longitude")
-                ),
-
-            "wind":
-                row.get(
-                    "USA_WIND",
-                    row.get("wind")
-                ),
-
-            "pressure":
-                row.get(
-                    "USA_PRES",
-                    row.get("pressure")
-                ),
-
-            "storm_speed":
-                row.get(
-                    "STORM_SPEED",
-                    row.get("storm_speed")
-                ),
-
-            "storm_direction":
-                row.get(
-                    "STORM_DIR",
-                    row.get("storm_direction")
-                ),
-
-            "distance_to_land":
-                row.get(
-                    "DIST2LAND",
-                    row.get("distance_to_land")
-                ),
-
-        })
+    print("=" * 60)
 
 
-    return create_training_dataset(
-        observations,
-        output_path
-    )
+    return training_df
 
 
 # =========================================================
-# UTILITY
-# =========================================================
-
-def _to_float(value):
-
-    try:
-
-        return float(value)
-
-    except (
-        TypeError,
-        ValueError
-    ):
-
-        return float("nan")
-
-
-# =========================================================
-# COMMAND LINE
+# RUN DIRECTLY
 # =========================================================
 
 if __name__ == "__main__":
 
-    create_training_dataset_from_csv(
-
-        input_path=(
-            "data/ibtracs.csv"
-        ),
-
-        output_path=(
-            "data/training/"
-            "cyclone_training.csv"
-        )
-
-    )
+    create_training_dataset()
